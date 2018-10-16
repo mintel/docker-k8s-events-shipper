@@ -11,16 +11,16 @@ TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
 
 # SIGTERM-handler
 term_handler() {
-  if [ $PID -ne 0 ]; then
-    set +e
-    kill -15 "$PID" # SIGTERM
-    wait "$PID"
-    set -e
-  fi
   if [ ! -z $CURL_PID ] && [ $CURL_PID -ne 0 ]; then
     set +e
-    kill -15 "$CURL_PID" # SIGTERM
+    kill -9 "$CURL_PID" # SIGTERM
     wait "$CURL_PID"
+    set -e
+  fi
+  if [ $PID -ne 0 ]; then
+    set +e
+    kill -9 "$PID" # SIGTERM
+    wait "$PID"
     set -e
   fi
   exit 0;
