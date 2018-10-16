@@ -9,6 +9,8 @@ RUN apk add --no-cache tini \
 
 ADD docker-entrypoint.sh /
 RUN chmod a+x /docker-entrypoint.sh
+ADD wait-for-it.sh /
+RUN chmod a+x /wait-for-it.sh
 
 # Select STDOUT or NETCAT Mode
 ENV OUTPUT_MODE stdout
