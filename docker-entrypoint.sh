@@ -19,7 +19,3 @@ else
   echo "Unsupported mode $OUTPUT_MODE" >&2
   exit 1
 fi
-
-while true ; do
-   tail -f /dev/null & wait ${!}
-done
