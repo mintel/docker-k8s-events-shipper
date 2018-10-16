@@ -17,7 +17,7 @@ term_handler() {
     wait "$PID"
     set -e
   fi
-  if [ $CURL_PID -ne 0 ] && [ $CURL_PID != "" ]; then
+  if [ ! -z $CURL_PID ] && [ $CURL_PID -ne 0 ]; then
     set +e
     kill -15 "$CURL_PID" # SIGTERM
     wait "$CURL_PID"

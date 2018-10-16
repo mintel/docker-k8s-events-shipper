@@ -5,6 +5,7 @@ LABEL maintainer="Francesco Ciocchetti <fciocchetti@mintel.com>" \
       vcs-url="https://github.com/mintel/docker-k8s-events-shipper"
 
 ADD docker-entrypoint.sh /
+RUN chmod a+x /docker-entrypoint.sh
 
 # Select STDOUT or NETCAT Mode
 ENV OUTPUT_MODE stdout
