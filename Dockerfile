@@ -4,6 +4,9 @@ LABEL maintainer="Francesco Ciocchetti <fciocchetti@mintel.com>" \
       version="1.0.1" \
       vcs-url="https://github.com/mintel/docker-k8s-events-shipper"
 
+RUN apk add --no-cache tini \
+    && rm -rf /var/cache/apk/*
+
 ADD docker-entrypoint.sh /
 RUN chmod a+x /docker-entrypoint.sh
 
@@ -13,4 +16,4 @@ ENV OUTPUT_MODE stdout
 ENV NETCAT_DST_HOST 127.0.0.1
 ENV NETCAT_DST_PORT 9000
 
-ENTRYPOINT ["/docker-entrypoint.sh"]
+ENTRYPOINT ["tini", "--", "/docker-entrypoint.sh"]
