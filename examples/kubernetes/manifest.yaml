@@ -1,0 +1,230 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mintel:events-exporter:eventer
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: events-exporter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mintel:events-exporter:eventer
+subjects:
+- kind: ServiceAccount
+  name: events-exporter
+  namespace: monitoring
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: events-exporter
+  namespace: monitoring
+  labels:
+    k8s-app: events-exporter
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eventer-template
+  namespace: monitoring
+data:
+  events.json: |
+    {
+        "order": 0,
+        "version": 60001,
+        "index_patterns": [
+          "events-*"
+        ],
+        "settings": {
+          "index": {
+            "refresh_interval": "5s",
+            "number_of_shards": 5
+          }
+        },
+        "mappings": {
+          "_default_": {
+            "dynamic_templates": [
+              {
+                "message_field": {
+                  "path_match": "message",
+                  "match_mapping_type": "string",
+                  "mapping": {
+                    "type": "text",
+                    "copy_to": "log",
+                    "norms": false
+                  }
+                }
+              },
+              {
+                "string_fields": {
+                  "match": "*",
+                  "match_mapping_type": "string",
+                  "mapping": {
+                    "type": "text",
+                    "norms": false,
+                    "copy_to": "log",
+                    "fields": {
+                      "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "properties": {
+              "@timestamp": {
+                "type": "date"
+              },
+              "eventLastTimestamp": {
+                "type": "date",
+                "format": "strict_date_time_no_millis"
+              },
+              "eventFirstTimestamp": {
+                "type": "date",
+                "format": "strict_date_time_no_millis"
+              },
+              "@version": {
+                "type": "keyword"
+              },
+              "geoip": {
+                "dynamic": true,
+                "properties": {
+                  "ip": {
+                    "type": "ip"
+                  },
+                  "location": {
+                    "type": "geo_point"
+                  },
+                  "latitude": {
+                    "type": "half_float"
+                  },
+                  "longitude": {
+                    "type": "half_float"
+                  }
+                }
+              }
+            }
+          }
+        }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eventer-beat
+  namespace: monitoring
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+      - type: tcp
+        host: "127.0.0.1:9000"
+        tags: [ "eventer", "k8s_events" ]
+    processors:
+      - decode_json_fields:
+          fields: ["message"]
+      - rename:
+          fields:
+            - from: "message.object.lastTimestamp"
+              to: "eventLastTimestamp"
+            - from: "message.object.firstTimestamp"
+              to: "eventFirstTimestamp"
+          ignore_missing: false
+          fail_on_error: true
+    setup.template:
+      overwrite: true
+      name: "events"
+      pattern: "events-*"
+      json:
+        enabled: true
+        path: "/usr/share/filebeat/events.json"
+        name: "events"
+    output.elasticsearch:
+      hosts: ["http://elasticsearch.default.svc.cluster.local:9200"]
+      index: "events-%{+yyyy.MM.dd}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: events-exporter
+  namespace: monitoring
+  labels:
+    k8s-app: elasticsearch-log-eventer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      k8s-app: elasticsearch-log-eventer
+  template:
+    metadata:
+      labels:
+        k8s-app: elasticsearch-log-eventer
+    spec:
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      containers:
+        - image: mintel/k8s-events-shipper:latest
+          imagePullPolicy: Always
+          name: eventer
+          env:
+            - name: OUTPUT_MODE
+              value: "netcat"
+            - name: NETCAT_DST_HOST
+              value: "127.0.0.1"
+            - name: NETCAT_DST_PORT
+              value: "9000"
+          resources:
+            limits:
+              cpu: 50m
+              memory: 100Mi
+            requests:
+              cpu: 50m
+              memory: 100Mi
+          livenessProbe:
+            exec:
+              command:
+              - /healthz.sh
+            initialDelaySeconds: 60
+            periodSeconds: 5
+            failureThreshold: 1
+        - image: docker.elastic.co/beats/filebeat:6.4.2
+          name: eventer-beat
+          resources:
+            limits:
+              cpu: 50m
+              memory: 100Mi
+            requests:
+              cpu: 50m
+              memory: 100Mi
+          ports:
+            - containerPort: 9000
+          volumeMounts:
+          - name: config-volume
+            mountPath: /usr/share/filebeat/filebeat.yml
+            subPath: filebeat.yml
+          - name: template-volume
+            mountPath: /usr/share/filebeat/events.json
+            subPath: events.json
+      serviceAccountName: events-exporter
+      priorityClassName: infra
+      securityContext:
+        runAsUser: 1000
+      volumes:
+      - name: config-volume
+        configMap:
+          name: eventer-beat
+      - name: template-volume
+        configMap:
+          name: eventer-template
